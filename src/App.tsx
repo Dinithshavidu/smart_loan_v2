@@ -23,7 +23,9 @@ import {
   ArrowRight,
   UserPlus,
   DollarSign,
-  FileBadge
+  FileBadge,
+  Layers,
+  BookOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -44,6 +46,17 @@ interface AuthContextType {
   token: string | null;
   login: (token: string, user: User) => void;
   logout: () => void;
+}
+
+interface LoanType {
+  id: number;
+  name: string;
+  term_value: number;
+  term_unit: 'day' | 'month';
+  interest_rate: number;
+  late_fee_value: number;
+  late_fee_unit: 'day' | 'year';
+  late_fee_rate: number;
 }
 
 // --- Context ---
@@ -90,6 +103,7 @@ const Sidebar = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
     SUPER_ADMIN: [
       { name: 'Dashboard', icon: PieChart, path: '/' },
       { name: 'Providers', icon: Building2, path: '/providers' },
+      { name: 'Loan Types', icon: Layers, path: '/loan-types' },
     ],
     PROVIDER: [
       { name: 'Dashboard', icon: PieChart, path: '/' },
@@ -97,6 +111,7 @@ const Sidebar = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
       { name: 'Collectors', icon: Users, path: '/collectors' },
       { name: 'Customers', icon: Users, path: '/customers' },
       { name: 'Approvals', icon: Clock, path: '/approvals' },
+      { name: 'Policies', icon: BookOpen, path: '/policies' },
     ],
     COLLECTOR: [
       { name: 'Collections', icon: CheckCircle2, path: '/' },
@@ -398,6 +413,169 @@ const SuperAdminDashboard = () => {
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+const LoanTypeManagement = () => {
+  const [loanTypes, setLoanTypes] = useState<LoanType[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [termUnit, setTermUnit] = useState<'day' | 'month'>('month');
+  const [lateFeeUnit, setLateFeeUnit] = useState<'day' | 'year'>('day');
+  const { token } = useAuth();
+
+  const fetchLoanTypes = () => api.get('/api/admin/loan-types', token).then(setLoanTypes).catch(() => setLoanTypes([]));
+  useEffect(() => { fetchLoanTypes(); }, []);
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    setLoading(true);
+    const formData = new FormData(e.target);
+    const body = {
+      name: formData.get('name'),
+      term_value: Number(formData.get('term_value')),
+      term_unit: termUnit,
+      interest_rate: Number(formData.get('interest_rate')),
+      late_fee_value: Number(formData.get('late_fee_value')),
+      late_fee_unit: lateFeeUnit,
+      late_fee_rate: Number(formData.get('late_fee_rate')),
+    };
+    try {
+      await api.post('/api/admin/loan-types', body, token);
+      toast.success('Loan type created!');
+      setIsModalOpen(false);
+      e.target.reset();
+      setTermUnit('month');
+      setLateFeeUnit('day');
+      fetchLoanTypes();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Error creating loan type');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Loan Types</h1>
+          <p className="text-slate-500 text-sm">Global loan policies available for providers</p>
+        </div>
+        <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all">
+          <Plus className="w-4 h-4" />
+          <span>New Loan Type</span>
+        </button>
+      </div>
+
+      <div className="grid gap-4">
+        {loanTypes.map((lt) => (
+          <div key={lt.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
+                  <Layers className="w-5 h-5 text-indigo-500" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">{lt.name}</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Loan Type #{lt.id}</p>
+                </div>
+              </div>
+              <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded uppercase">Active</span>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Term</p>
+                <p className="font-bold text-slate-800">{lt.term_value} {lt.term_unit}{lt.term_value !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Interest Rate</p>
+                <p className="font-bold text-emerald-600">{lt.interest_rate}%</p>
+              </div>
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Late Fee</p>
+                <p className="font-bold text-red-500">{lt.late_fee_rate}% / {lt.late_fee_value} {lt.late_fee_unit}{lt.late_fee_value !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+        {loanTypes.length === 0 && (
+          <EmptyState
+            icon={Layers}
+            title="No loan types defined"
+            description="Create your first loan type to allow providers to configure their loan policies."
+            action={<button onClick={() => setIsModalOpen(true)} className="text-emerald-600 font-bold border-b-2 border-emerald-600 pb-0.5">Create Loan Type</button>}
+          />
+        )}
+      </div>
+
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-lg p-8 rounded-3xl shadow-2xl overflow-y-auto max-h-[90vh]">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-2xl font-black">New Loan Type</h2>
+                  <p className="text-slate-500 text-sm mt-0.5">Define the loan policy structure</p>
+                </div>
+                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-50 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+              </div>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Name */}
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Loan Type Name</label>
+                  <input name="name" placeholder="e.g. Personal Short-Term Loan" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
+                </div>
+
+                {/* Term */}
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Loan Term</label>
+                  <div className="flex gap-3">
+                    <input name="term_value" type="number" min="1" placeholder="12" className="flex-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-bold" required />
+                    <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+                      <button type="button" onClick={() => setTermUnit('day')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${termUnit === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Day</button>
+                      <button type="button" onClick={() => setTermUnit('month')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${termUnit === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Month</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interest Rate */}
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Interest Rate</label>
+                  <div className="relative">
+                    <input name="interest_rate" type="number" min="0" step="0.01" placeholder="10.5" className="w-full p-4 pr-12 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-bold" required />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">%</span>
+                  </div>
+                </div>
+
+                {/* Late Fee */}
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Late Payment Fee</label>
+                  <div className="space-y-3">
+                    <div className="flex gap-3 items-center">
+                      <span className="text-sm text-slate-500 font-medium shrink-0">Per</span>
+                      <input name="late_fee_value" type="number" min="1" placeholder="1" className="flex-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-bold" required />
+                      <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+                        <button type="button" onClick={() => setLateFeeUnit('day')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${lateFeeUnit === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Day</button>
+                        <button type="button" onClick={() => setLateFeeUnit('year')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${lateFeeUnit === 'year' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Year</button>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <input name="late_fee_rate" type="number" min="0" step="0.01" placeholder="2.5" className="w-full p-4 pr-12 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-red-400 transition-all font-bold" required />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button disabled={loading} className="w-full bg-emerald-600 text-white font-bold p-5 rounded-2xl shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50">
+                  {loading ? 'Creating...' : 'Create Loan Type'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -1005,6 +1183,109 @@ const CollectorManagement = () => {
   );
 };
 
+const ProviderPolicies = () => {
+  const [allLoanTypes, setAllLoanTypes] = useState<LoanType[]>([]);
+  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+  const [toggling, setToggling] = useState<number | null>(null);
+  const { token } = useAuth();
+
+  const fetchData = async () => {
+    try {
+      const [all, assigned] = await Promise.all([
+        api.get('/api/provider/loan-types', token),
+        api.get('/api/provider/policies', token),
+      ]);
+      setAllLoanTypes(all);
+      setAssignedIds(new Set((assigned as any[]).map((p: any) => p.loan_type_id ?? p.id)));
+    } catch {
+      setAllLoanTypes([]);
+      setAssignedIds(new Set());
+    }
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
+  const togglePolicy = async (loanTypeId: number, assigned: boolean) => {
+    setToggling(loanTypeId);
+    try {
+      if (assigned) {
+        await api.post('/api/provider/policies/remove', { loan_type_id: loanTypeId }, token);
+        toast.success('Policy removed');
+      } else {
+        await api.post('/api/provider/policies', { loan_type_id: loanTypeId }, token);
+        toast.success('Policy assigned!');
+      }
+      await fetchData();
+    } catch {
+      toast.error('Failed to update policy');
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Loan Policies</h1>
+        <p className="text-slate-500 text-sm mt-1">Enable loan types that your company will offer to customers</p>
+      </div>
+
+      <div className="grid gap-4">
+        {allLoanTypes.map((lt) => {
+          const isAssigned = assignedIds.has(lt.id);
+          return (
+            <div key={lt.id} className={`bg-white p-6 rounded-2xl border-2 shadow-sm transition-all ${isAssigned ? 'border-emerald-300 shadow-emerald-50' : 'border-slate-200'}`}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isAssigned ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                    <BookOpen className={`w-5 h-5 ${isAssigned ? 'text-emerald-500' : 'text-slate-400'}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900">{lt.name}</h3>
+                    {isAssigned && <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Enabled</span>}
+                  </div>
+                </div>
+                <button
+                  onClick={() => togglePolicy(lt.id, isAssigned)}
+                  disabled={toggling === lt.id}
+                  className={`px-5 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-50 shrink-0 ${
+                    isAssigned
+                      ? 'bg-red-50 text-red-500 hover:bg-red-100'
+                      : 'bg-emerald-600 text-white shadow-lg shadow-emerald-100 hover:bg-emerald-700'
+                  }`}
+                >
+                  {toggling === lt.id ? <Clock className="w-4 h-4 animate-spin" /> : isAssigned ? 'Remove' : 'Assign'}
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-5">
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Term</p>
+                  <p className="font-bold text-slate-800 text-sm">{lt.term_value} {lt.term_unit}{lt.term_value !== 1 ? 's' : ''}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Interest</p>
+                  <p className="font-bold text-emerald-600 text-sm">{lt.interest_rate}%</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Late Fee</p>
+                  <p className="font-bold text-red-500 text-sm">{lt.late_fee_rate}% / {lt.late_fee_value} {lt.late_fee_unit}{lt.late_fee_value !== 1 ? 's' : ''}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {allLoanTypes.length === 0 && (
+          <EmptyState
+            icon={BookOpen}
+            title="No loan types available"
+            description="The system administrator hasn't created any loan types yet. Contact your administrator."
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- Customer Feature ---
 
 const CustomerDashboard = () => {
@@ -1313,6 +1594,7 @@ export default function App() {
                     <>
                       <Route path="/" element={<SuperAdminDashboard />} />
                       <Route path="/providers" element={<ProviderManagement />} />
+                      <Route path="/loan-types" element={<LoanTypeManagement />} />
                     </>
                   )}
                   {user?.role === 'PROVIDER' && (
@@ -1322,6 +1604,7 @@ export default function App() {
                       <Route path="/loans" element={<LoanCreation />} />
                       <Route path="/approvals" element={<PaymentApprovals />} />
                       <Route path="/collectors" element={<CollectorManagement />} />
+                      <Route path="/policies" element={<ProviderPolicies />} />
                     </>
                   )}
                   {user?.role === 'COLLECTOR' && (

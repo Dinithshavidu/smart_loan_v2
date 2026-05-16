@@ -75,6 +75,28 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
+
+  CREATE TABLE IF NOT EXISTS loan_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    term_value INTEGER NOT NULL,
+    term_unit TEXT CHECK(term_unit IN ('day', 'month')) NOT NULL DEFAULT 'month',
+    interest_rate REAL NOT NULL,
+    late_fee_value INTEGER NOT NULL DEFAULT 1,
+    late_fee_unit TEXT CHECK(late_fee_unit IN ('day', 'year')) NOT NULL DEFAULT 'day',
+    late_fee_rate REAL NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS provider_policies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL,
+    loan_type_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(company_id, loan_type_id),
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (loan_type_id) REFERENCES loan_types(id)
+  );
 `);
 
 // Seed Super Admin if not exists
@@ -418,6 +440,62 @@ async function startServer() {
       db.prepare("UPDATE payments SET status = 'rejected' WHERE id = ?").run(payment_id);
     }
     res.json({ message: `Payment ${status}` });
+  });
+
+  // --- Loan Types (Super Admin) ---
+  app.get("/api/admin/loan-types", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "SUPER_ADMIN") return res.sendStatus(403);
+    const loanTypes = db.prepare("SELECT * FROM loan_types ORDER BY created_at DESC").all();
+    res.json(loanTypes);
+  });
+
+  app.post("/api/admin/loan-types", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "SUPER_ADMIN") return res.sendStatus(403);
+    const { name, term_value, term_unit, interest_rate, late_fee_value, late_fee_unit, late_fee_rate } = req.body;
+    if (!name || !term_value || !term_unit || interest_rate == null || !late_fee_value || !late_fee_unit || late_fee_rate == null) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+    try {
+      const result = db.prepare(
+        "INSERT INTO loan_types (name, term_value, term_unit, interest_rate, late_fee_value, late_fee_unit, late_fee_rate) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(name, term_value, term_unit, interest_rate, late_fee_value, late_fee_unit, late_fee_rate);
+      res.json({ id: result.lastInsertRowid, message: "Loan type created" });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  // --- Provider Policies ---
+  app.get("/api/provider/loan-types", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "PROVIDER") return res.sendStatus(403);
+    const loanTypes = db.prepare("SELECT * FROM loan_types ORDER BY created_at DESC").all();
+    res.json(loanTypes);
+  });
+
+  app.get("/api/provider/policies", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "PROVIDER") return res.sendStatus(403);
+    const policies = db.prepare("SELECT * FROM provider_policies WHERE company_id = ?").all(req.user.company_id);
+    res.json(policies);
+  });
+
+  app.post("/api/provider/policies", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "PROVIDER") return res.sendStatus(403);
+    const { loan_type_id } = req.body;
+    if (!loan_type_id) return res.status(400).json({ message: "loan_type_id is required" });
+    try {
+      db.prepare("INSERT INTO provider_policies (company_id, loan_type_id) VALUES (?, ?)").run(req.user.company_id, loan_type_id);
+      res.json({ message: "Policy assigned" });
+    } catch (e: any) {
+      res.status(400).json({ message: "Policy already assigned" });
+    }
+  });
+
+  app.post("/api/provider/policies/remove", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "PROVIDER") return res.sendStatus(403);
+    const { loan_type_id } = req.body;
+    if (!loan_type_id) return res.status(400).json({ message: "loan_type_id is required" });
+    db.prepare("DELETE FROM provider_policies WHERE company_id = ? AND loan_type_id = ?").run(req.user.company_id, loan_type_id);
+    res.json({ message: "Policy removed" });
   });
 
   // Vite middleware for development
