@@ -1,0 +1,10 @@
+{
+  "name": "Remix: LendFlow",
+  "description": "A comprehensive mobile-first loan management platform for finance providers. Supports multi-tenancy, real-time collections, and role-based access control.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
