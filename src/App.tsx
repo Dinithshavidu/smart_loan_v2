@@ -104,6 +104,7 @@ const Sidebar = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
       { name: 'Dashboard', icon: PieChart, path: '/' },
       { name: 'Providers', icon: Building2, path: '/providers' },
       { name: 'Loan Types', icon: Layers, path: '/loan-types' },
+      { name: 'Policies', icon: BookOpen, path: '/provider-policies' },
     ],
     PROVIDER: [
       { name: 'Dashboard', icon: PieChart, path: '/' },
@@ -945,36 +946,73 @@ const CustomerManagement = () => {
 };
 
 const LoanCreation = () => {
-  const [customers, setCustomers] = useState([]);
-  const [collectors, setCollectors] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [collectors, setCollectors] = useState<any[]>([]);
+  const [assignedLoanTypes, setAssignedLoanTypes] = useState<LoanType[]>([]);
   const [nicQuery, setNicQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  // phase: 'search' | 'register' | 'loan'
+  const [phase, setPhase] = useState<'search' | 'register' | 'loan'>('search');
   const [foundCustomer, setFoundCustomer] = useState<any>(null);
+  const [selectedLoanType, setSelectedLoanType] = useState<LoanType | null>(null);
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [loanLoading, setLoanLoading] = useState(false);
   const { token } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get('/api/provider/collectors', token).then(setCollectors);
-    api.get('/api/provider/customers', token).then(setCustomers);
+    api.get('/api/provider/collectors', token).then(setCollectors).catch(() => {});
+    api.get('/api/provider/assigned-loan-types', token).then(setAssignedLoanTypes).catch(() => {});
   }, []);
 
+  // --- Phase 1: NIC Search ---
   const handleNICSearch = async () => {
-    if (!nicQuery) return;
+    if (!nicQuery.trim()) return;
+    setSearching(true);
     try {
-      const customer = await api.get(`/api/provider/customers/nic/${nicQuery}`, token);
+      const customer = await api.get(`/api/provider/customers/nic/${nicQuery.trim()}`, token);
       setFoundCustomer(customer);
+      setPhase('loan');
       toast.success('Customer found!');
     } catch {
-      toast.error('Customer not found with this NIC');
+      // Not found — go to register
       setFoundCustomer(null);
+      setPhase('register');
+    } finally {
+      setSearching(false);
     }
   };
 
+  // --- Phase 2: Register new customer ---
+  const handleRegister = async (e: any) => {
+    e.preventDefault();
+    setRegisterLoading(true);
+    const formData = new FormData(e.target);
+    const body: any = Object.fromEntries(formData.entries());
+    // Carry the searched NIC over
+    if (!body.nic) body.nic = nicQuery.trim();
+    try {
+      await api.post('/api/provider/customers', body, token);
+      const customer = await api.get(`/api/provider/customers/nic/${body.nic}`, token);
+      setFoundCustomer(customer);
+      toast.success('Customer registered!');
+      setPhase('loan');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Registration failed');
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
+  // --- Phase 3: Create Loan ---
   const handleCreate = async (e: any) => {
     e.preventDefault();
-    setLoading(true);
+    if (!selectedLoanType) { toast.error('Please select a loan type'); return; }
+    setLoanLoading(true);
     const formData = new FormData(e.target);
-    const body = Object.fromEntries(formData.entries());
+    const body: any = Object.fromEntries(formData.entries());
+    body.customer_id = foundCustomer.id;
+    body.interest_rate = selectedLoanType.interest_rate;
+    body.loan_type_id = selectedLoanType.id;
     try {
       await api.post('/api/provider/loans', body, token);
       toast.success('Loan created successfully!');
@@ -982,72 +1020,217 @@ const LoanCreation = () => {
     } catch {
       toast.error('Failed to create loan');
     } finally {
-      setLoading(false);
+      setLoanLoading(false);
     }
   };
 
+  const reset = () => {
+    setPhase('search');
+    setNicQuery('');
+    setFoundCustomer(null);
+    setSelectedLoanType(null);
+  };
+
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <div className="text-center">
-         <h1 className="text-3xl font-bold">New Loan Agreement</h1>
-         <p className="text-slate-500 mt-2">Initialize a new financial contract</p>
+    <div className="max-w-2xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        {phase !== 'search' && (
+          <button onClick={reset} className="p-2 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors">
+            <ArrowRight className="w-4 h-4 rotate-180 text-slate-600" />
+          </button>
+        )}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {phase === 'search' && 'New Loan Agreement'}
+            {phase === 'register' && 'Register New Customer'}
+            {phase === 'loan' && 'Issue Loan Contract'}
+          </h1>
+          <p className="text-slate-500 text-sm">
+            {phase === 'search' && 'Look up borrower by NIC number'}
+            {phase === 'register' && `NIC ${nicQuery} not found — register the customer first`}
+            {phase === 'loan' && `Lending to ${foundCustomer?.name}`}
+          </p>
+        </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 flex items-center gap-3">
-         <Search className="w-5 h-5 text-slate-400" />
-         <input 
-          placeholder="Lookup Customer by NIC..." 
-          className="flex-1 outline-none text-sm font-medium"
-          value={nicQuery}
-          onChange={(e) => setNicQuery(e.target.value)}
-        />
-         <button onClick={handleNICSearch} className="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-200 transition-colors">Search</button>
+      {/* Step indicator */}
+      <div className="flex items-center gap-2">
+        {(['search', 'register', 'loan'] as const).map((s, i) => {
+          const steps = phase === 'register'
+            ? ['search', 'register', 'loan']
+            : ['search', 'loan'];
+          const idx = steps.indexOf(s);
+          const currentIdx = steps.indexOf(phase);
+          if (idx === -1) return null;
+          return (
+            <div key={s} className="flex items-center gap-2">
+              {i > 0 && phase !== 'register' && s === 'loan' && <div className="w-8 h-px bg-slate-200" />}
+              {i > 0 && phase === 'register' && <div className="w-8 h-px bg-slate-200" />}
+              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                s === phase ? 'bg-emerald-600 text-white' : currentIdx > idx ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
+              }`}>
+                <span>{idx + 1}</span>
+                <span className="capitalize">{s === 'search' ? 'Find' : s === 'register' ? 'Register' : 'Loan'}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {foundCustomer && (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between">
-           <div>
-             <p className="font-bold text-emerald-900">{foundCustomer.name}</p>
-             <p className="text-xs text-emerald-600 font-medium">Active Loans: {foundCustomer.active_loans}</p>
-           </div>
-           <div className="text-right">
-              <p className="text-xs text-emerald-600 font-bold uppercase tracking-widest">Verified Customer</p>
-           </div>
-        </motion.div>
-      )}
+      {/* ── Phase 1: NIC Search ── */}
+      <AnimatePresence mode="wait">
+        {phase === 'search' && (
+          <motion.div key="search" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center gap-3 shadow-sm">
+              <Search className="w-5 h-5 text-slate-400 shrink-0" />
+              <input
+                placeholder="Enter customer NIC number..."
+                className="flex-1 outline-none text-sm font-medium placeholder:text-slate-300"
+                value={nicQuery}
+                onChange={(e) => setNicQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleNICSearch()}
+                autoFocus
+              />
+              <button
+                onClick={handleNICSearch}
+                disabled={searching || !nicQuery.trim()}
+                className="bg-emerald-600 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {searching ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                {searching ? 'Searching...' : 'Search'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 text-center font-medium">
+              If the NIC is not registered, you'll be prompted to add the customer first.
+            </p>
+          </motion.div>
+        )}
 
-      <form onSubmit={handleCreate} className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200 border border-slate-100 space-y-6">
-        <div className="space-y-2">
-          <label className="text-sm font-bold text-slate-700 ml-1">Borrower</label>
-          <select name="customer_id" defaultValue={foundCustomer?.id || ''} className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium appearance-none" required>
-            <option value="">Select a borrower...</option>
-            {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name} ({c.nic})</option>)}
-          </select>
-        </div>
+        {/* ── Phase 2: Register ── */}
+        {phase === 'register' && (
+          <motion.div key="register" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-900 text-sm">No customer found for NIC: <span className="font-mono">{nicQuery}</span></p>
+                <p className="text-xs text-amber-700 mt-0.5">Fill in the details below to register them, then proceed to create the loan.</p>
+              </div>
+            </div>
+            <form onSubmit={handleRegister} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-100 space-y-4">
+              <input name="name" placeholder="Full Name" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
+              <input name="email" type="email" placeholder="Email Address" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
+              <input name="nic" placeholder="NIC Number" defaultValue={nicQuery} className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
+              <input name="address" placeholder="Residential Address" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
+              <button disabled={registerLoading} className="w-full bg-emerald-600 text-white font-bold p-4 rounded-xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50">
+                {registerLoading ? 'Registering...' : 'Register & Continue to Loan →'}
+              </button>
+            </form>
+          </motion.div>
+        )}
 
-        <div className="space-y-2">
-          <label className="text-sm font-bold text-slate-700 ml-1">Assigned Collector</label>
-          <select name="collector_id" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium appearance-none" required>
-            <option value="">Select a collector...</option>
-            {collectors.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
+        {/* ── Phase 3: Loan Form ── */}
+        {phase === 'loan' && (
+          <motion.div key="loan" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-5">
+            {/* Customer card */}
+            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center font-bold text-emerald-600">
+                  {foundCustomer?.name?.[0]}
+                </div>
+                <div>
+                  <p className="font-bold text-emerald-900">{foundCustomer?.name}</p>
+                  <p className="text-xs text-emerald-600 font-medium">NIC: {foundCustomer?.nic} · Active Loans: {foundCustomer?.active_loans ?? 0}</p>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full uppercase tracking-wider">Verified</span>
+            </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 ml-1">Principal Amount</label>
-            <input name="amount" type="number" placeholder="5000" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-bold" required />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 ml-1">Interest Rate (%)</label>
-            <input name="interest_rate" type="number" placeholder="10" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-bold" required />
-          </div>
-        </div>
+            {/* Loan type picker */}
+            <div>
+              <p className="text-sm font-bold text-slate-700 mb-3 ml-1">Select Loan Type</p>
+              {assignedLoanTypes.length === 0 ? (
+                <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-6 text-center">
+                  <p className="text-slate-400 text-sm font-medium">No loan types assigned to your account yet.</p>
+                  <p className="text-slate-400 text-xs mt-1">Contact the Super Admin to assign policies.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {assignedLoanTypes.map((lt) => (
+                    <button
+                      key={lt.id}
+                      type="button"
+                      onClick={() => setSelectedLoanType(lt)}
+                      className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
+                        selectedLoanType?.id === lt.id
+                          ? 'border-emerald-500 bg-emerald-50'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-bold text-slate-900">{lt.name}</span>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                          selectedLoanType?.id === lt.id ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'
+                        }`}>
+                          {selectedLoanType?.id === lt.id && <div className="w-2 h-2 bg-white rounded-full" />}
+                        </div>
+                      </div>
+                      <div className="flex gap-4 text-xs font-bold">
+                        <span className="text-slate-500">Term: <span className="text-slate-800">{lt.term_value} {lt.term_unit}{lt.term_value !== 1 ? 's' : ''}</span></span>
+                        <span className="text-slate-500">Interest: <span className="text-emerald-600">{lt.interest_rate}%</span></span>
+                        <span className="text-slate-500">Late fee: <span className="text-red-500">{lt.late_fee_rate}%/{lt.late_fee_value}{lt.late_fee_unit[0]}</span></span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-        <button disabled={loading} className="w-full bg-slate-900 text-white font-bold p-5 rounded-2xl shadow-xl shadow-slate-300 hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50">
-          {loading ? 'Processing...' : 'Issue Loan Contract'}
-        </button>
-      </form>
+            {/* Loan details form */}
+            {selectedLoanType && (
+              <motion.form
+                key={selectedLoanType.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                onSubmit={handleCreate}
+                className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200 border border-slate-100 space-y-5"
+              >
+                <div className="p-4 bg-slate-50 rounded-2xl text-sm space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Loan Type</span>
+                    <span className="font-bold">{selectedLoanType.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Interest Rate</span>
+                    <span className="font-bold text-emerald-600">{selectedLoanType.interest_rate}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Late Fee</span>
+                    <span className="font-bold text-red-500">{selectedLoanType.late_fee_rate}% per {selectedLoanType.late_fee_value} {selectedLoanType.late_fee_unit}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 ml-1">Assigned Collector</label>
+                  <select name="collector_id" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium appearance-none" required>
+                    <option value="">Select a collector...</option>
+                    {collectors.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 ml-1">Principal Amount (Rs)</label>
+                  <input name="amount" type="number" min="1" placeholder="50000" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-bold text-lg" required />
+                </div>
+
+                <button disabled={loanLoading} className="w-full bg-slate-900 text-white font-bold p-5 rounded-2xl shadow-xl shadow-slate-300 hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50">
+                  {loanLoading ? 'Processing...' : 'Issue Loan Contract'}
+                </button>
+              </motion.form>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -1179,6 +1362,206 @@ const CollectorManagement = () => {
           </div>
         )}
       </AnimatePresence>
+    </div>
+  );
+};
+
+const SuperAdminProviderPolicies = () => {
+  const [providers, setProviders] = useState<any[]>([]);
+  const [allLoanTypes, setAllLoanTypes] = useState<LoanType[]>([]);
+  const [providerPolicies, setProviderPolicies] = useState<Record<number, number[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [expandedProvider, setExpandedProvider] = useState<number | null>(null);
+  const [operationLoading, setOperationLoading] = useState<string>('');
+  const { token } = useAuth();
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [providersData, loanTypesData] = await Promise.all([
+        api.get('/api/admin/providers', token),
+        api.get('/api/admin/loan-types', token)
+      ]);
+      setProviders(providersData);
+      setAllLoanTypes(loanTypesData);
+
+      // Fetch policies for each provider
+      const policiesMap: Record<number, number[]> = {};
+      for (const provider of providersData) {
+        try {
+          const policies = await api.get(`/api/admin/provider-policies/${provider.id}`, token);
+          policiesMap[provider.id] = policies.map((p: any) => p.loan_type_id);
+        } catch (err) {
+          console.error(`Failed to fetch policies for provider ${provider.id}:`, err);
+          policiesMap[provider.id] = [];
+        }
+      }
+      setProviderPolicies(policiesMap);
+    } catch (err) {
+      console.error('Failed to fetch data:', err);
+      toast.error('Failed to load policies');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleToggleLoanType = async (providerId: number, loanTypeId: number, isAssigned: boolean) => {
+    const key = `${providerId}-${loanTypeId}`;
+    setOperationLoading(key);
+    try {
+      if (isAssigned) {
+        // Remove
+        await api.post('/api/admin/provider-policies/remove', 
+          { provider_id: providerId, loan_type_id: loanTypeId }, 
+          token
+        );
+      } else {
+        // Assign
+        await api.post('/api/admin/provider-policies/assign', 
+          { provider_id: providerId, loan_type_id: loanTypeId }, 
+          token
+        );
+      }
+      // Update local state
+      setProviderPolicies(prev => ({
+        ...prev,
+        [providerId]: isAssigned
+          ? prev[providerId].filter(id => id !== loanTypeId)
+          : [...(prev[providerId] || []), loanTypeId]
+      }));
+      toast.success(isAssigned ? 'Policy removed' : 'Policy assigned');
+    } catch (err: any) {
+      console.error('Policy update failed:', err);
+      toast.error(err.response?.data?.message || 'Failed to update policy');
+    } finally {
+      setOperationLoading('');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="flex flex-col items-center gap-3">
+          <Clock className="w-8 h-8 text-slate-400 animate-spin" />
+          <p className="text-slate-500 font-medium">Loading policies...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Provider Policies</h1>
+        <p className="text-slate-500 mt-2">Assign loan types to providers for them to offer to customers</p>
+      </div>
+
+      {providers.length === 0 ? (
+        <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-8 text-center">
+          <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <p className="text-slate-500 font-medium">No providers registered</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {providers.map((provider: any) => {
+            const assignedIds = providerPolicies[provider.id] || [];
+            return (
+              <motion.div
+                key={provider.id}
+                className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all"
+              >
+                {/* Header - Click to expand */}
+                <button
+                  onClick={() => setExpandedProvider(expandedProvider === provider.id ? null : provider.id)}
+                  className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-center gap-4 flex-1 text-left">
+                    <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-600">
+                      {provider.name[0]}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">{provider.name}</p>
+                      <p className="text-sm text-slate-500">
+                        {assignedIds.length} of {allLoanTypes.length} loan type{assignedIds.length !== 1 ? 's' : ''} assigned
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight
+                    className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${
+                      expandedProvider === provider.id ? 'rotate-90' : ''
+                    }`}
+                  />
+                </button>
+
+                {/* Expanded content */}
+                <AnimatePresence>
+                  {expandedProvider === provider.id && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="border-t border-slate-100 bg-slate-50"
+                    >
+                      <div className="p-6 space-y-3">
+                        {allLoanTypes.length === 0 ? (
+                          <p className="text-slate-400 text-sm text-center py-4">No loan types defined yet</p>
+                        ) : (
+                          allLoanTypes.map((loanType) => {
+                            const isAssigned = assignedIds.includes(loanType.id);
+                            const key = `${provider.id}-${loanType.id}`;
+                            return (
+                              <div
+                                key={loanType.id}
+                                className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-100 hover:border-slate-200 transition-all"
+                              >
+                                <div className="flex-1">
+                                  <p className="font-bold text-slate-900">{loanType.name}</p>
+                                  <div className="flex gap-4 mt-1 text-xs text-slate-500">
+                                    <span>Term: {loanType.term_value} {loanType.term_unit}{loanType.term_value !== 1 ? 's' : ''}</span>
+                                    <span>Interest: {loanType.interest_rate}%</span>
+                                    <span>Late fee: {loanType.late_fee_rate}%</span>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleToggleLoanType(provider.id, loanType.id, isAssigned)}
+                                  disabled={operationLoading === key}
+                                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+                                    isAssigned
+                                      ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  } disabled:opacity-50`}
+                                >
+                                  {operationLoading === key && <Clock className="w-4 h-4 animate-spin" />}
+                                  {isAssigned ? (
+                                    <>
+                                      <CheckCircle2 className="w-4 h-4" />
+                                      Assigned
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Plus className="w-4 h-4" />
+                                      Assign
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -1595,6 +1978,7 @@ export default function App() {
                       <Route path="/" element={<SuperAdminDashboard />} />
                       <Route path="/providers" element={<ProviderManagement />} />
                       <Route path="/loan-types" element={<LoanTypeManagement />} />
+                      <Route path="/provider-policies" element={<SuperAdminProviderPolicies />} />
                     </>
                   )}
                   {user?.role === 'PROVIDER' && (

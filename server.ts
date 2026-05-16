@@ -442,6 +442,17 @@ async function startServer() {
     res.json({ message: `Payment ${status}` });
   });
 
+  app.get("/api/provider/assigned-loan-types", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "PROVIDER") return res.sendStatus(403);
+    const loanTypes = db.prepare(`
+      SELECT lt.* FROM loan_types lt
+      INNER JOIN provider_policies pp ON pp.loan_type_id = lt.id
+      WHERE pp.company_id = ?
+      ORDER BY lt.name
+    `).all(req.user.company_id);
+    res.json(loanTypes);
+  });
+
   // --- Loan Types (Super Admin) ---
   app.get("/api/admin/loan-types", authenticateToken, (req: any, res) => {
     if (req.user.role !== "SUPER_ADMIN") return res.sendStatus(403);
@@ -495,6 +506,34 @@ async function startServer() {
     const { loan_type_id } = req.body;
     if (!loan_type_id) return res.status(400).json({ message: "loan_type_id is required" });
     db.prepare("DELETE FROM provider_policies WHERE company_id = ? AND loan_type_id = ?").run(req.user.company_id, loan_type_id);
+    res.json({ message: "Policy removed" });
+  });
+
+  // --- Super Admin: Manage Provider Policies ---
+  app.get("/api/admin/provider-policies/:provider_id", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "SUPER_ADMIN") return res.sendStatus(403);
+    const { provider_id } = req.params;
+    const policies = db.prepare("SELECT * FROM provider_policies WHERE company_id = ? ORDER BY created_at DESC").all(provider_id);
+    res.json(policies);
+  });
+
+  app.post("/api/admin/provider-policies/assign", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "SUPER_ADMIN") return res.sendStatus(403);
+    const { provider_id, loan_type_id } = req.body;
+    if (!provider_id || !loan_type_id) return res.status(400).json({ message: "provider_id and loan_type_id are required" });
+    try {
+      db.prepare("INSERT INTO provider_policies (company_id, loan_type_id) VALUES (?, ?)").run(provider_id, loan_type_id);
+      res.json({ message: "Policy assigned" });
+    } catch (e: any) {
+      res.status(400).json({ message: "Policy already assigned or invalid IDs" });
+    }
+  });
+
+  app.post("/api/admin/provider-policies/remove", authenticateToken, (req: any, res) => {
+    if (req.user.role !== "SUPER_ADMIN") return res.sendStatus(403);
+    const { provider_id, loan_type_id } = req.body;
+    if (!provider_id || !loan_type_id) return res.status(400).json({ message: "provider_id and loan_type_id are required" });
+    db.prepare("DELETE FROM provider_policies WHERE company_id = ? AND loan_type_id = ?").run(provider_id, loan_type_id);
     res.json({ message: "Policy removed" });
   });
 
