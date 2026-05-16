@@ -4,16 +4,12 @@ import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const JWT_SECRET = process.env.JWT_SECRET || "finance-secret-key-123";
-const db = new Database("finance.db");
+const db = new Database(path.join(process.cwd(), "finance.db"));
 
 // Initialize Database Schema
 db.exec(`
