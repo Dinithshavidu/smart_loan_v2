@@ -398,7 +398,7 @@ const SuperAdminDashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card title="Total Providers" value={stats.total_providers.count} icon={Building2} color="bg-emerald-50 text-emerald-600" />
         <Card title="Active Loans" value={stats.total_active_loans.count} icon={Wallet} color="bg-blue-50 text-blue-600" />
-        <Card title="Total Revenue" value={`$${(stats.total_revenue.total || 0).toLocaleString()}`} icon={DollarSign} color="bg-indigo-50 text-indigo-600" />
+        <Card title="Total Revenue" value={`Rs ${(stats.total_revenue.total || 0).toLocaleString()}`} icon={DollarSign} color="bg-indigo-50 text-indigo-600" />
       </div>
 
       <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-[2.5rem] p-10 text-white shadow-2xl shadow-indigo-200">
@@ -711,7 +711,7 @@ const ProviderDashboard = () => {
         <Card title="Active Loans" value={stats.active_loans.count} icon={Wallet} color="bg-emerald-50 text-emerald-600" trend={12} />
         <Card title="Total Customers" value={stats.total_customers.count} icon={Users} color="bg-purple-50 text-purple-600" trend={5} />
         <Card title="Pending Review" value={stats.pending_collections.count} icon={Clock} color="bg-orange-50 text-orange-600" />
-        <Card title="Total Balance" value={`$${(stats.total_balance.total || 0).toLocaleString()}`} icon={DollarSign} color="bg-emerald-50 text-emerald-600" />
+        <Card title="Total Balance" value={`Rs ${(stats.total_balance.total || 0).toLocaleString()}`} icon={DollarSign} color="bg-emerald-50 text-emerald-600" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -732,7 +732,7 @@ const ProviderDashboard = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                       <p className="font-bold text-sm">$450.00</p>
+                       <p className="font-bold text-sm">Rs 450.00</p>
                        <p className="text-[10px] text-orange-500 font-bold uppercase tracking-tighter">Due Today</p>
                     </div>
                  </div>
@@ -758,7 +758,7 @@ const ProviderDashboard = () => {
                  </div>
                </div>
                <p className="text-xs text-slate-400 leading-relaxed">
-                 You are $24k away from your monthly target. 12 payments pending verification.
+                 You are Rs 24k away from your monthly target. 12 payments pending verification.
                </p>
                <button onClick={() => navigate('/approvals')} className="w-full bg-white/10 hover:bg-white/20 py-2.5 rounded-xl text-sm font-bold transition-colors">
                  Go to Approvals
@@ -924,11 +924,11 @@ const CustomerManagement = () => {
                     {customerLoans.map((l) => (
                       <div key={l.id} className="p-4 border border-slate-200 rounded-2xl flex items-center justify-between">
                          <div>
-                            <p className="font-bold text-sm">${l.amount.toLocaleString()} + {l.interest_rate}% Interest</p>
+                            <p className="font-bold text-sm">Rs {l.amount.toLocaleString()} + {l.interest_rate}% Interest</p>
                             <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Status: {l.status}</p>
                          </div>
                          <div className="text-right">
-                            <p className="font-black text-slate-900">${l.balance.toLocaleString()}</p>
+                            <p className="font-black text-slate-900">Rs {l.balance.toLocaleString()}</p>
                             <p className="text-[10px] text-slate-400 uppercase font-black">Remaining</p>
                          </div>
                       </div>
@@ -1080,7 +1080,7 @@ const PaymentApprovals = () => {
                 <CreditCard className="w-7 h-7 text-slate-400" />
               </div>
               <div>
-                <p className="font-bold text-lg">${p.amount.toLocaleString()}</p>
+                <p className="font-bold text-lg">Rs {p.amount.toLocaleString()}</p>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm mt-1">
                   <span className="flex items-center gap-1 text-slate-500 font-medium"><Users className="w-3.5 h-3.5" /> {p.customer_name}</span>
                   <span className="flex items-center gap-1 text-emerald-600 font-semibold"><PieChart className="w-3.5 h-3.5" /> via {p.collector_name}</span>
@@ -1306,7 +1306,7 @@ const CustomerDashboard = () => {
       <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden">
         <div className="relative z-10">
           <p className="text-emerald-400 font-bold uppercase tracking-widest text-[10px] mb-2">Total Outstanding</p>
-          <h1 className="text-5xl font-black mb-6">${(stats.total_balance.total || 0).toLocaleString()}</h1>
+          <h1 className="text-5xl font-black mb-6">Rs {(stats.total_balance.total || 0).toLocaleString()}</h1>
           <div className="flex gap-4">
              <div className="bg-white/10 px-4 py-2 rounded-xl backdrop-blur-md">
                 <p className="text-[10px] opacity-60 uppercase font-black">Active Loans</p>
@@ -1339,7 +1339,7 @@ const CustomerDashboard = () => {
                     <p className="text-xs text-slate-500">Loan ID: #LN{1000 + loan.id}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-black text-slate-900">${loan.balance.toLocaleString()}</p>
+                    <p className="text-lg font-black text-slate-900">Rs {loan.balance.toLocaleString()}</p>
                     <p className="text-[10px] text-slate-400 font-bold uppercase">Balance</p>
                   </div>
                 </div>
@@ -1347,7 +1347,7 @@ const CustomerDashboard = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs font-bold">
                     <span className="text-slate-400">{percentage}% Repaid</span>
-                    <span className="text-emerald-600">${paid.toLocaleString()} / ${loan.total_repayable.toLocaleString()}</span>
+                    <span className="text-emerald-600">Rs {paid.toLocaleString()} / Rs {loan.total_repayable.toLocaleString()}</span>
                   </div>
                   <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full bg-emerald-500 rounded-full transition-all duration-1000" style={{ width: `${percentage}%` }}></div>
@@ -1403,7 +1403,7 @@ const CustomerHistory = () => {
                    p.status === 'pending' ? <Clock className="w-6 h-6" /> : <X className="w-6 h-6" />}
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900">${p.amount.toLocaleString()}</p>
+                  <p className="font-bold text-slate-900">Rs {p.amount.toLocaleString()}</p>
                   <p className="text-xs text-slate-500">{format(new Date(p.created_at), 'MMM dd, yyyy • hh:mm a')}</p>
                 </div>
               </div>
@@ -1456,7 +1456,7 @@ const CollectorDashboard = () => {
     <div className="space-y-6">
       <div className="bg-emerald-600 p-8 rounded-[2rem] text-white shadow-2xl shadow-emerald-200">
          <p className="text-emerald-100 font-medium mb-1">Today's Target</p>
-         <h1 className="text-4xl font-black">$45,200</h1>
+         <h1 className="text-4xl font-black">Rs 45,200</h1>
          <div className="flex items-center justify-between mt-6 pt-6 border-t border-emerald-500/30">
             <div className="flex flex-col">
               <span className="text-[10px] uppercase font-black tracking-widest opacity-60">Pending</span>
@@ -1475,7 +1475,7 @@ const CollectorDashboard = () => {
                <div className="w-12 h-12 bg-slate-50 flex items-center justify-center rounded-xl font-bold text-slate-400">{c.customer_name[0]}</div>
                <div>
                   <p className="font-bold text-slate-900">{c.customer_name}</p>
-                  <p className="text-xs text-slate-500 font-medium">Due: ${c.balance.toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 font-medium">Due: Rs {c.balance.toLocaleString()}</p>
                </div>
             </div>
             <div className="p-2.5 bg-slate-50 rounded-full">
@@ -1495,7 +1495,7 @@ const CollectorDashboard = () => {
               
               <div className="space-y-6">
                 <div className="relative">
-                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-400">$</span>
+                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-slate-400">Rs</span>
                   <input autoFocus type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" className="w-full text-4xl p-6 pl-12 bg-slate-50 rounded-3xl outline-none font-black text-slate-900 border-2 border-transparent focus:border-emerald-500 transition-all" />
                 </div>
 
@@ -1538,7 +1538,7 @@ const CollectorHistory = () => {
             {payments.map((p: any) => (
               <tr key={p.id}>
                 <td className="px-6 py-4 font-bold">{p.customer_name}</td>
-                <td className="px-6 py-4 text-right font-black">${p.amount.toLocaleString()}</td>
+                <td className="px-6 py-4 text-right font-black">Rs {p.amount.toLocaleString()}</td>
                 <td className="px-6 py-4">
                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                     p.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 
