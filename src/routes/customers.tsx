@@ -39,8 +39,8 @@ const CustomerManagement = () => {
       toast.success('Customer added!');
       setIsModalOpen(false);
       fetchCustomers();
-    } catch {
-      toast.error('Error adding customer');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Error adding customer');
     } finally {
       setLoading(false);
     }
@@ -97,7 +97,7 @@ const CustomerManagement = () => {
               </div>
               <form onSubmit={handleSubmit} className="space-y-5">
                 <input name="name" placeholder="Full Name" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-medium" required />
-                <input name="email" type="email" placeholder="Email Address" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-medium" required />
+                <input name="email" type="email" placeholder="Email Address (optional)" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-medium" />
                 <input name="nic" placeholder="NIC Number" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-medium" required />
                 <input name="address" placeholder="Residential Address" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-medium" required />
                 <button disabled={loading} className="w-full bg-emerald-600 text-white font-bold p-4 rounded-xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50">

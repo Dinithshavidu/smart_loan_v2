@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createRoute, useNavigate } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { Clock, Search, AlertCircle, ArrowRight } from 'lucide-react';
@@ -12,6 +12,8 @@ const LoanCreation = () => {
   const [collectors, setCollectors] = useState<any[]>([]);
   const [assignedLoanTypes, setAssignedLoanTypes] = useState<LoanType[]>([]);
   const [nicQuery, setNicQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<{id: number; name: string; nic: string}[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [searching, setSearching] = useState(false);
   const [phase, setPhase] = useState<'search' | 'register' | 'loan'>('search');
   const [foundCustomer, setFoundCustomer] = useState<any>(null);
@@ -20,11 +22,42 @@ const LoanCreation = () => {
   const [loanLoading, setLoanLoading] = useState(false);
   const { token } = useAuth();
   const navigate = useNavigate();
+  const suggestRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    api.get('/api/provider/collectors', token).then(setCollectors).catch(() => {});
-    api.get('/api/provider/assigned-loan-types', token).then(setAssignedLoanTypes).catch(() => {});
+    api.get('/api/provider/collectors', token).then(setCollectors).catch(() => toast.error('Failed to load collectors'));
+    api.get('/api/provider/assigned-loan-types', token).then(setAssignedLoanTypes).catch(() => toast.error('Failed to load loan types'));
+  }, [token]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (suggestRef.current && !suggestRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const handleNicInput = (value: string) => {
+    setNicQuery(value);
+    setShowSuggestions(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!value.trim()) { setSuggestions([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const results = await api.get(`/api/provider/customers/nic-suggest?q=${encodeURIComponent(value.trim())}`, token);
+        setSuggestions(results);
+      } catch { setSuggestions([]); }
+    }, 200);
+  };
+
+  const pickSuggestion = (s: {id: number; name: string; nic: string}) => {
+    setNicQuery(s.nic);
+    setSuggestions([]);
+    setShowSuggestions(false);
+  };
 
   const handleNICSearch = async () => {
     if (!nicQuery.trim()) return;
@@ -86,6 +119,8 @@ const LoanCreation = () => {
     setNicQuery('');
     setFoundCustomer(null);
     setSelectedLoanType(null);
+    setSuggestions([]);
+    setShowSuggestions(false);
   };
 
   return (
@@ -136,24 +171,47 @@ const LoanCreation = () => {
       <AnimatePresence mode="wait">
         {phase === 'search' && (
           <motion.div key="search" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center gap-3 shadow-sm">
-              <Search className="w-5 h-5 text-slate-400 shrink-0" />
-              <input
-                placeholder="Enter customer NIC number..."
-                className="flex-1 outline-none text-sm font-medium placeholder:text-slate-300"
-                value={nicQuery}
-                onChange={(e) => setNicQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleNICSearch()}
-                autoFocus
-              />
-              <button
-                onClick={handleNICSearch}
-                disabled={searching || !nicQuery.trim()}
-                className="bg-emerald-600 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all disabled:opacity-40 flex items-center gap-1.5"
-              >
-                {searching ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                {searching ? 'Searching...' : 'Search'}
-              </button>
+            <div className="relative" ref={suggestRef}>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center gap-3 shadow-sm">
+                <Search className="w-5 h-5 text-slate-400 shrink-0" />
+                <input
+                  placeholder="Enter customer NIC number..."
+                  className="flex-1 outline-none text-sm font-medium placeholder:text-slate-300"
+                  value={nicQuery}
+                  onChange={(e) => handleNicInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { setShowSuggestions(false); handleNICSearch(); } }}
+                  onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                  autoFocus
+                />
+                <button
+                  onClick={() => { setShowSuggestions(false); handleNICSearch(); }}
+                  disabled={searching || !nicQuery.trim()}
+                  className="bg-emerald-600 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all disabled:opacity-40 flex items-center gap-1.5"
+                >
+                  {searching ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                  {searching ? 'Searching...' : 'Search'}
+                </button>
+              </div>
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-100 overflow-hidden z-20">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); pickSuggestion(s); }}
+                      className="w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-50 text-left transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-sm shrink-0">
+                        {s.name[0]}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">{s.name}</p>
+                        <p className="text-xs text-slate-400 font-mono">{s.nic}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <p className="text-xs text-slate-400 text-center font-medium">
               If the NIC is not registered, you'll be prompted to add the customer first.
@@ -172,7 +230,7 @@ const LoanCreation = () => {
             </div>
             <form onSubmit={handleRegister} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-100 space-y-4">
               <input name="name" placeholder="Full Name" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
-              <input name="email" type="email" placeholder="Email Address" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
+              <input name="email" type="email" placeholder="Email Address (optional)" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" />
               <input name="nic" placeholder="NIC Number" defaultValue={nicQuery} className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
               <input name="address" placeholder="Residential Address" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
               <button disabled={registerLoading} className="w-full bg-emerald-600 text-white font-bold p-4 rounded-xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50">
@@ -261,10 +319,16 @@ const LoanCreation = () => {
 
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700 ml-1">Assigned Collector</label>
-                  <select name="collector_id" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium appearance-none" required>
-                    <option value="">Select a collector...</option>
-                    {collectors.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  {collectors.length === 0 ? (
+                    <div className="w-full p-4 bg-amber-50 rounded-xl border border-amber-200 text-sm text-amber-700 font-medium">
+                      No active collectors found. Add a collector first from the Collectors page.
+                    </div>
+                  ) : (
+                    <select name="collector_id" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium appearance-none" required>
+                      <option value="">Select a collector...</option>
+                      {collectors.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  )}
                 </div>
 
                 <div className="space-y-2">

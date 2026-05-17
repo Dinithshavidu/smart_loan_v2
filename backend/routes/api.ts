@@ -51,6 +51,16 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
     });
   });
 
+  app.get('/api/provider/customers/nic-suggest', auth, requireRole('PROVIDER'), (req: AuthenticatedRequest, res) => {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (!q) return res.json([]);
+    const pattern = `%${q}%`;
+    const suggestions = db
+      .prepare(`SELECT id, name, nic FROM users WHERE company_id = ? AND role = 'CUSTOMER' AND status = 'active' AND (nic LIKE ? OR name LIKE ?) LIMIT 10`)
+      .all(req.user?.company_id, pattern, pattern) as {id: number; name: string; nic: string}[];
+    res.json(suggestions);
+  });
+
   app.get('/api/provider/customers/nic/:nic', auth, requireRole('PROVIDER'), (req: AuthenticatedRequest, res) => {
     const customer = db
       .prepare(`
@@ -101,7 +111,7 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
 
   app.get('/api/provider/collectors', auth, requireRole('PROVIDER'), (req: AuthenticatedRequest, res) => {
     const collectors = db
-      .prepare("SELECT id, name, email, status FROM users WHERE company_id = ? AND role = 'COLLECTOR'")
+      .prepare("SELECT id, name, email, status FROM users WHERE company_id = ? AND role = 'COLLECTOR' AND status = 'active'")
       .all(req.user?.company_id);
     res.json(collectors);
   });
@@ -496,20 +506,31 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
 
   app.post('/api/provider/customers', auth, requireRole('PROVIDER'), (req: AuthenticatedRequest, res) => {
     const {name, email, password, nic, address} = req.body;
+    if (!name || !name.toString().trim()) {
+      return res.status(400).json({message: 'Customer name is required'});
+    }
+    const resolvedEmail =
+      email && email.toString().trim()
+        ? email.toString().trim()
+        : `cust_${Date.now()}_${Math.random().toString(36).slice(2)}@noreply.local`;
     const hashedPassword = bcrypt.hashSync(password || 'customer123', 10);
     try {
       db.prepare('INSERT INTO users (company_id, name, email, password, role, nic, address) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
         req.user?.company_id,
-        name,
-        email,
+        name.toString().trim(),
+        resolvedEmail,
         hashedPassword,
         'CUSTOMER',
-        nic,
-        address,
+        nic || null,
+        address || null,
       );
       res.json({message: 'Customer registered successfully'});
-    } catch {
-      res.status(400).json({message: 'User already exists or invalid data'});
+    } catch (err: any) {
+      if (err?.message?.includes('UNIQUE')) {
+        res.status(400).json({message: 'A customer with this email already exists'});
+      } else {
+        res.status(400).json({message: err?.message || 'Failed to register customer'});
+      }
     }
   });
 
