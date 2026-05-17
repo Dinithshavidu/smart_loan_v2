@@ -18,8 +18,9 @@ function migrateLegacySchema() {
     db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'");
   }
 
-  db.exec("UPDATE companies SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''");
-  db.exec("UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''");
+  // Update ALL existing records to have status='active' if missing or empty
+  db.exec("UPDATE companies SET status = 'active' WHERE status IS NULL OR status = '' OR TRIM(status) = ''");
+  db.exec("UPDATE users SET status = 'active' WHERE status IS NULL OR status = '' OR TRIM(status) = ''");
 }
 
 export function initializeDatabase() {

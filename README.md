@@ -44,7 +44,7 @@ Smart Loan V2 is a role-based loan management application for providers, collect
 ## Demo Credentials
 
 Super Admin (System Administrator)
-- Email: \
+- Email: admin@lendflow.com
 - Password: admin123
 
 Demo Accounts (Require Seeding)

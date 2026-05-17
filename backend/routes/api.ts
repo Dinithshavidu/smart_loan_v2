@@ -111,7 +111,7 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
 
   app.get('/api/provider/collectors', auth, requireRole('PROVIDER'), (req: AuthenticatedRequest, res) => {
     const collectors = db
-      .prepare("SELECT id, name, email, status FROM users WHERE company_id = ? AND role = 'COLLECTOR' AND status = 'active'")
+      .prepare("SELECT id, name, email, status FROM users WHERE company_id = ? AND role = 'COLLECTOR' ORDER BY name")
       .all(req.user?.company_id);
     res.json(collectors);
   });
@@ -120,15 +120,19 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
     const {name, email, password} = req.body;
     const hashedPassword = bcrypt.hashSync(password, 10);
     try {
-      db.prepare("INSERT INTO users (company_id, name, email, password, role) VALUES (?, ?, ?, ?, 'COLLECTOR')").run(
+      db.prepare("INSERT INTO users (company_id, name, email, password, role, status) VALUES (?, ?, ?, ?, 'COLLECTOR', 'active')").run(
         req.user?.company_id,
         name,
         email,
         hashedPassword,
       );
       res.json({message: 'Collector registered'});
-    } catch {
-      res.status(400).json({message: 'Collector already exists'});
+    } catch (err: any) {
+      if (err?.message?.includes('UNIQUE')) {
+        res.status(400).json({message: 'A collector with this email already exists'});
+      } else {
+        res.status(400).json({message: err?.message || 'Failed to register collector'});
+      }
     }
   });
 
@@ -157,10 +161,10 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
   app.post('/api/admin/seed', auth, requireRole('SUPER_ADMIN'), (_req, res) => {
     try {
       const transaction = db.transaction(() => {
-        const companyId = db.prepare('INSERT INTO companies (name) VALUES (?)').run('Demo Finance Ltd').lastInsertRowid;
+        const companyId = db.prepare('INSERT INTO companies (name, status) VALUES (?, ?)').run('Demo Finance Ltd', 'active').lastInsertRowid;
 
         const providerPass = bcrypt.hashSync('provider123', 10);
-        db.prepare("INSERT INTO users (company_id, name, email, password, role) VALUES (?, ?, ?, ?, 'PROVIDER')").run(
+        db.prepare("INSERT INTO users (company_id, name, email, password, role, status) VALUES (?, ?, ?, ?, 'PROVIDER', 'active')").run(
           companyId,
           'Demo Provider',
           'provider@demo.com',
@@ -169,13 +173,13 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
 
         const collectorPass = bcrypt.hashSync('collector123', 10);
         const collectorId = db
-          .prepare("INSERT INTO users (company_id, name, email, password, role) VALUES (?, ?, ?, ?, 'COLLECTOR')")
+          .prepare("INSERT INTO users (company_id, name, email, password, role, status) VALUES (?, ?, ?, ?, 'COLLECTOR', 'active')")
           .run(companyId, 'Sam Collector', 'sam@demo.com', collectorPass).lastInsertRowid;
 
         const customerPass = bcrypt.hashSync('customer123', 10);
         const customerId = db
           .prepare(
-            "INSERT INTO users (company_id, name, email, password, role, nic, address) VALUES (?, ?, ?, ?, 'CUSTOMER', ?, ?)",
+            "INSERT INTO users (company_id, name, email, password, role, nic, address, status) VALUES (?, ?, ?, ?, 'CUSTOMER', ?, ?, 'active')",
           )
           .run(companyId, 'Jane Doe', 'jane@demo.com', customerPass, '123456789X', '456 Demo Avenue').lastInsertRowid;
 
@@ -504,6 +508,18 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
     res.json(loans);
   });
 
+  app.get('/api/provider/loans/collector/:id', auth, requireRole('PROVIDER'), (req: AuthenticatedRequest, res) => {
+    const loans = db
+      .prepare(`
+        SELECT l.*, c.name as customer_name, c.nic as customer_nic
+        FROM loans l
+        JOIN users c ON l.customer_id = c.id
+        WHERE l.collector_id = ? AND l.company_id = ?
+      `)
+      .all(req.params.id, req.user?.company_id);
+    res.json(loans);
+  });
+
   app.post('/api/provider/customers', auth, requireRole('PROVIDER'), (req: AuthenticatedRequest, res) => {
     const {name, email, password, nic, address} = req.body;
     if (!name || !name.toString().trim()) {
@@ -515,7 +531,7 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
         : `cust_${Date.now()}_${Math.random().toString(36).slice(2)}@noreply.local`;
     const hashedPassword = bcrypt.hashSync(password || 'customer123', 10);
     try {
-      db.prepare('INSERT INTO users (company_id, name, email, password, role, nic, address) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO users (company_id, name, email, password, role, nic, address, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
         req.user?.company_id,
         name.toString().trim(),
         resolvedEmail,
@@ -523,6 +539,7 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
         'CUSTOMER',
         nic || null,
         address || null,
+        'active',
       );
       res.json({message: 'Customer registered successfully'});
     } catch (err: any) {

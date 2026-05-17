@@ -16,8 +16,8 @@ const CustomerManagement = () => {
   const [loading, setLoading] = useState(false);
   const { token } = useAuth();
 
-  const fetchCustomers = () => api.get('/api/provider/customers', token).then(setCustomers);
-  useEffect(() => { fetchCustomers(); }, []);
+  const fetchCustomers = () => api.get('/api/provider/customers', token).then(setCustomers).catch(() => toast.error('Failed to load customers'));
+  useEffect(() => { fetchCustomers(); }, [token]);
 
   const fetchCustomerDetails = async (customer: any) => {
     setSelectedCustomer(customer);
@@ -26,6 +26,7 @@ const CustomerManagement = () => {
       setCustomerLoans(loans);
     } catch {
       setCustomerLoans([]);
+      toast.error('Failed to load customer loans');
     }
   };
 
@@ -58,7 +59,7 @@ const CustomerManagement = () => {
 
       <div className="grid gap-4">
         {customers.map((c: any) => (
-          <div key={c.id} className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between hover:border-emerald-200 transition-colors cursor-pointer group" onClick={() => fetchCustomerDetails(c)}>
+          <div key={c.id} className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between hover:border-emerald-200 transition-colors cursor-pointer group" onClick={() => { console.log('Clicking customer:', c); fetchCustomerDetails(c); }}>
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-slate-50 flex items-center justify-center rounded-xl text-slate-400 font-bold group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-colors">
                 {c.name[0]}
