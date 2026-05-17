@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createRoute, useNavigate } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { Building2, Link2, Lock, Plus, Power, Users, X } from 'lucide-react';
+import { Building2, Lock, Plus, Power, Users, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { rootRoute } from './__root';
 import { api } from '../lib/api';
@@ -46,14 +46,11 @@ const ProviderManagement = () => {
 
   const [isCreateProviderModalOpen, setIsCreateProviderModalOpen] = useState(false);
   const [isCreateCompanyModalOpen, setIsCreateCompanyModalOpen] = useState(false);
-  const [isAllocateModalOpen, setIsAllocateModalOpen] = useState(false);
   const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
 
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [selectedUser, setSelectedUser] = useState<CompanyUser | null>(null);
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<'ALL' | 'PROVIDER' | 'COLLECTOR' | 'CUSTOMER'>('ALL');
-  const [selectedAllocateProvider, setSelectedAllocateProvider] = useState<number | ''>('');
-  const [selectedAllocateCompany, setSelectedAllocateCompany] = useState<number | ''>('');
 
   const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -103,21 +100,20 @@ const ProviderManagement = () => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const body = Object.fromEntries(formData.entries());
-    const providerName = typeof body.name === 'string' ? body.name.trim() : '';
-    if (!providerName) {
-      setProviderFormError('Provider Full Name is required.');
+    if (!body.company_id) {
+      setProviderFormError('Please select a company.');
       return;
     }
     setProviderFormError('');
     setLoading(true);
     try {
       await api.post('/api/admin/providers', body, token);
-      toast.success('Provider added successfully!');
+      toast.success('Provider registered successfully!');
       setIsCreateProviderModalOpen(false);
       e.target.reset();
       await fetchBaseData();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Error adding provider');
+      toast.error(err.response?.data?.message || 'Error registering provider');
     } finally {
       setLoading(false);
     }
@@ -155,37 +151,7 @@ const ProviderManagement = () => {
     }
   };
 
-  const handleAllocateProvider = async (e: any) => {
-    e.preventDefault();
-    if (!selectedAllocateProvider || !selectedAllocateCompany) {
-      toast.error('Please select provider and company');
-      return;
-    }
 
-    setLoading(true);
-    try {
-      await api.post(
-        '/api/admin/providers/allocate',
-        {
-          provider_id: Number(selectedAllocateProvider),
-          company_id: Number(selectedAllocateCompany),
-        },
-        token,
-      );
-      toast.success('Provider allocated successfully');
-      setIsAllocateModalOpen(false);
-      setSelectedAllocateProvider('');
-      setSelectedAllocateCompany('');
-      await fetchBaseData();
-      if (selectedCompanyId) {
-        await fetchCompanyUsers(selectedCompanyId, selectedRoleFilter);
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to allocate provider');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleResetPassword = async (e: any) => {
     e.preventDefault();
@@ -227,10 +193,6 @@ const ProviderManagement = () => {
           <button onClick={() => setIsCreateProviderModalOpen(true)} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg shadow-emerald-100">
             <Plus className="w-4 h-4" />
             <span>Register Provider</span>
-          </button>
-          <button onClick={() => setIsAllocateModalOpen(true)} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg font-bold shadow-lg shadow-slate-200">
-            <Link2 className="w-4 h-4" />
-            <span>Allocate Provider</span>
           </button>
         </div>
       </div>
@@ -388,25 +350,33 @@ const ProviderManagement = () => {
               </div>
               <form onSubmit={handleCreateProvider} className="space-y-6">
                 <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Provider Details</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Company</label>
+                  <div>
+                    <select
+                      name="company_id"
+                      onChange={() => { if (providerFormError) setProviderFormError(''); }}
+                      defaultValue=""
+                      className={`w-full p-4 bg-slate-50 rounded-xl outline-none border transition-all font-medium ${
+                        providerFormError ? 'border-red-400 focus:border-red-500' : 'border-slate-100 focus:border-emerald-500'
+                      }`}
+                    >
+                      <option value="">Select company *</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>{company.name}</option>
+                      ))}
+                    </select>
+                    {providerFormError && (
+                      <p className="text-red-500 text-xs font-semibold mt-1.5">{providerFormError}</p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Provider Account</label>
                   <div className="space-y-3">
-                    <div>
-                      <input
-                        name="name"
-                        placeholder="Provider Full Name *"
-                        onChange={() => { if (providerFormError) setProviderFormError(''); }}
-                        className={`w-full p-4 bg-slate-50 rounded-xl outline-none border transition-all font-medium ${
-                          providerFormError ? 'border-red-400 focus:border-red-500' : 'border-slate-100 focus:border-emerald-500'
-                        }`}
-                      />
-                      {providerFormError && (
-                        <p className="text-red-500 text-xs font-semibold mt-1.5">{providerFormError}</p>
-                      )}
-                    </div>
-                    <input name="email" type="email" placeholder="Email Address *" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
+                    <input name="admin_name" placeholder="Full Name" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" />
+                    <input name="email" type="email" placeholder="Email *" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
                     <input name="password" type="password" placeholder="Initial Password *" className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-emerald-500 transition-all font-medium" required />
                   </div>
-                  <p className="text-xs text-slate-400 mt-3">Use <span className="font-bold text-slate-600">Allocate Provider</span> to assign this provider to a company after registration.</p>
                 </div>
                 <button disabled={loading} className="w-full bg-emerald-600 text-white font-bold p-5 rounded-2xl shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50">
                   {loading ? 'Registering...' : 'Register Provider'}
@@ -432,58 +402,6 @@ const ProviderManagement = () => {
                 </div>
                 <button disabled={loading} className="w-full bg-indigo-600 text-white font-bold p-5 rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50">
                   {loading ? 'Creating...' : 'Create Company'}
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {isAllocateModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-lg p-8 rounded-3xl shadow-2xl">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-2xl font-black">Allocate Provider</h2>
-                <button onClick={() => setIsAllocateModalOpen(false)} className="p-2 hover:bg-slate-50 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
-              </div>
-              <form onSubmit={handleAllocateProvider} className="space-y-6">
-                <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Provider</label>
-                  <select
-                    value={selectedAllocateProvider}
-                    onChange={(event) => setSelectedAllocateProvider(Number(event.target.value))}
-                    className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-slate-900 transition-all font-medium"
-                    required
-                  >
-                    <option value="">Select provider</option>
-                    {providers.map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.name} ({provider.email}){provider.company_id ? ` — ${provider.company_name ?? 'Assigned'}` : ' — Unassigned'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Company</label>
-                  <select
-                    value={selectedAllocateCompany}
-                    onChange={(event) => setSelectedAllocateCompany(Number(event.target.value))}
-                    className="w-full p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:border-slate-900 transition-all font-medium"
-                    required
-                  >
-                    <option value="">Select company</option>
-                    {companies.map((company) => (
-                      <option key={company.id} value={company.id}>
-                        {company.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <button disabled={loading} className="w-full bg-slate-900 text-white font-bold p-5 rounded-2xl shadow-xl shadow-slate-200 hover:bg-black transition-all active:scale-95 disabled:opacity-50">
-                  {loading ? 'Allocating...' : 'Allocate'}
                 </button>
               </form>
             </motion.div>

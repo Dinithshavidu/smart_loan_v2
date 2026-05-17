@@ -435,28 +435,32 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
   });
 
   app.post('/api/admin/providers', auth, requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res) => {
-    const {name, email, password} = req.body;
+    const {company_id, admin_name, email, password} = req.body;
 
-    const providerName = typeof name === 'string' ? name.trim() : '';
-    if (!providerName) {
-      return res.status(400).json({message: 'Provider name is required'});
+    const companyId = Number(company_id);
+    if (!companyId || isNaN(companyId)) {
+      return res.status(400).json({message: 'Company is required'});
     }
     if (!email || !password) {
       return res.status(400).json({message: 'Email and password are required'});
     }
 
+    const company = db.prepare('SELECT id, name FROM companies WHERE id = ?').get(companyId) as {id: number; name: string} | undefined;
+    if (!company) {
+      return res.status(404).json({message: 'Company not found'});
+    }
+
     try {
       const hashedPassword = bcrypt.hashSync(password, 10);
-      const result = db
-        .prepare("INSERT INTO users (company_id, name, email, password, role, status) VALUES (NULL, ?, ?, ?, 'PROVIDER', 'inactive')")
-        .run(providerName, email, hashedPassword);
-
+      const providerName = typeof admin_name === 'string' && admin_name.trim() ? admin_name.trim() : `${company.name} Admin`;
+      db.prepare("INSERT INTO users (company_id, name, email, password, role, status) VALUES (?, ?, ?, ?, 'PROVIDER', 'active')")
+        .run(companyId, providerName, email, hashedPassword);
       db.prepare('INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)').run(
         req.user?.id,
         'CREATE_PROVIDER',
-        `Registered provider account: ${providerName}`,
+        `Registered provider for company: ${company.name}`,
       );
-      res.json({id: result.lastInsertRowid, message: 'Provider registered successfully'});
+      res.json({message: 'Provider registered successfully'});
     } catch (error: any) {
       console.error('Provider creation error:', error);
       res.status(400).json({message: error.message});
