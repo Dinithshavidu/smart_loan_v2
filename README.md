@@ -1,36 +1,64 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Smart Loan V2
 
-# Run and deploy your AI Studio app
+Smart Loan V2 is a role-based loan management application for providers, collectors, and customers.
 
-This contains everything you need to run your app locally.
+## Tech Stack
 
-View your app in AI Studio: https://ai.studio/apps/2906443a-1305-49f9-8aa4-0dbbd7bb15aa
+- React 19 + TypeScript
+- TanStack Router
+- Tailwind CSS
+- Express + Node.js
+- SQLite (better-sqlite3)
+
+## Prerequisites
+
+- Node.js 20+
+- npm
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+1. Install dependencies
+   npm install
 
+2. Start the app
+   npm run dev
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+3. Open your browser
+   http://localhost:3000
 
+## Build For Production
+
+1. Build client and server bundles
+   npm run build
+
+2. Start production server
+   npm run start
+
+## Useful Scripts
+
+- npm run dev: Start development server
+- npm run build: Create production build
+- npm run start: Run production server
+- npm run lint: Type-check project
+
+## Demo Credentials
 
 Super Admin (System Administrator)
-Email: admin@lendflow.com
-Password: admin123
+- Email: admin@lendflow.com
+- Password: admin123
+
 Demo Accounts (Require Seeding)
-If you are logged in as the Super Admin, you can navigate to the dashboard and trigger a "Seed Demo Data" action (via the API endpoint /api/admin/seed) to create the following test accounts:
+- If logged in as Super Admin, trigger Seed Demo Data from the dashboard.
+- API endpoint for seeding: /api/admin/seed
+
 Provider Admin (Finance Company Owner)
-Email: provider@demo.com
-Password: provider123
+- Email: provider@demo.com
+- Password: provider123
+
 Collector (Field Agent)
-Email: sam@demo.com
-Password: collector123
+- Email: sam@demo.com
+- Password: collector123
+
 Customer (Loan Recipient)
-Email: jane@demo.com
-Password: customer123
+- Email: jane@demo.com
+- Password: customer123
