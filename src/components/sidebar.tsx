@@ -24,7 +24,7 @@ export const Sidebar = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
   const menuItems = {
     SUPER_ADMIN: [
       { name: 'Dashboard', icon: PieChart, path: '/' },
-      { name: 'Providers', icon: Building2, path: '/providers' },
+      { name: 'Companies', icon: Building2, path: '/providers' },
       { name: 'Loan Types', icon: Layers, path: '/loan-types' },
       { name: 'Policies', icon: BookOpen, path: '/provider-policies' },
     ],

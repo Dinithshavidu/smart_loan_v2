@@ -4,6 +4,24 @@ import path from 'path';
 
 export const db = new Database(path.join(process.cwd(), 'finance.db'));
 
+function hasColumn(tableName: string, columnName: string) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{name: string}>;
+  return columns.some((column) => column.name === columnName);
+}
+
+function migrateLegacySchema() {
+  if (!hasColumn('companies', 'status')) {
+    db.exec("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'");
+  }
+
+  if (!hasColumn('users', 'status')) {
+    db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'");
+  }
+
+  db.exec("UPDATE companies SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''");
+  db.exec("UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''");
+}
+
 export function initializeDatabase() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS companies (
@@ -87,6 +105,8 @@ export function initializeDatabase() {
       FOREIGN KEY (loan_type_id) REFERENCES loan_types(id)
     );
   `);
+
+  migrateLegacySchema();
 }
 
 export function seedSuperAdmin() {

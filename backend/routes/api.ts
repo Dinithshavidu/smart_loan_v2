@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import {Express} from 'express';
 import jwt from 'jsonwebtoken';
 
-import {AuthenticatedRequest, UserRole, authenticateToken, requireRole} from '../middleware/auth';
+import {AuthenticatedRequest, authenticateToken, requireRole} from '../middleware/auth';
 
 type ApiDeps = {
   db: any;
@@ -10,13 +10,30 @@ type ApiDeps = {
 };
 
 export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
-  const auth = authenticateToken(jwtSecret);
+  const auth = authenticateToken(jwtSecret, db);
 
   app.post('/api/auth/login', (req, res) => {
     const {email, password} = req.body;
-    const user: any = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const user: any = db
+      .prepare(
+        `
+          SELECT u.*, c.status as company_status
+          FROM users u
+          LEFT JOIN companies c ON c.id = u.company_id
+          WHERE u.email = ?
+        `,
+      )
+      .get(email);
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({message: 'Invalid credentials'});
+    }
+
+    if (user.status !== 'active') {
+      return res.status(403).json({message: 'User account is deactivated'});
+    }
+
+    if (user.role !== 'SUPER_ADMIN' && user.company_status !== 'active') {
+      return res.status(403).json({message: 'Company is deactivated'});
     }
 
     const token = jwt.sign({id: user.id, role: user.role, company_id: user.company_id}, jwtSecret, {
@@ -48,6 +65,37 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
     if (!customer) {
       return res.status(404).json({message: 'Customer not found'});
     }
+    res.json(customer);
+  });
+
+  app.get('/api/admin/customers/nic/:nic', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const customer = db
+      .prepare(
+        `
+          SELECT
+            u.id,
+            u.company_id,
+            c.name as company_name,
+            c.status as company_status,
+            u.name,
+            u.email,
+            u.nic,
+            u.address,
+            u.status,
+            (SELECT COUNT(*) FROM loans l WHERE l.customer_id = u.id AND l.status = 'active') as active_loans,
+            (SELECT COALESCE(SUM(balance), 0) FROM loans l WHERE l.customer_id = u.id) as total_debt
+          FROM users u
+          LEFT JOIN companies c ON c.id = u.company_id
+          WHERE u.nic = ? AND u.role = 'CUSTOMER'
+          LIMIT 1
+        `,
+      )
+      .get(req.params.nic);
+
+    if (!customer) {
+      return res.status(404).json({message: 'Customer not found'});
+    }
+
     res.json(customer);
   });
 
@@ -136,40 +184,279 @@ export function registerApiRoutes(app: Express, {db, jwtSecret}: ApiDeps) {
   app.get('/api/admin/providers', auth, requireRole('SUPER_ADMIN'), (_req, res) => {
     const providers = db
       .prepare(`
-      SELECT c.*, (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.role = 'CUSTOMER') as customer_count
+      SELECT
+        c.*,
+        (
+          SELECT u.id FROM users u
+          WHERE u.company_id = c.id AND u.role = 'PROVIDER'
+          ORDER BY u.created_at ASC LIMIT 1
+        ) as provider_id,
+        (
+          SELECT u.name FROM users u
+          WHERE u.company_id = c.id AND u.role = 'PROVIDER'
+          ORDER BY u.created_at ASC LIMIT 1
+        ) as provider_name,
+        (
+          SELECT u.email FROM users u
+          WHERE u.company_id = c.id AND u.role = 'PROVIDER'
+          ORDER BY u.created_at ASC LIMIT 1
+        ) as provider_email,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.role = 'PROVIDER') as provider_count,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.role = 'COLLECTOR') as collector_count,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.role = 'CUSTOMER') as customer_count,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) as total_user_count
       FROM companies c
+      ORDER BY c.created_at DESC
     `)
       .all();
     res.json(providers);
   });
 
-  app.post('/api/admin/providers', auth, requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res) => {
-    const {name, email, password, admin_name} = req.body;
+  app.get('/api/admin/companies', auth, requireRole('SUPER_ADMIN'), (_req, res) => {
+    const companies = db
+      .prepare(`
+      SELECT
+        c.*,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.role = 'PROVIDER') as provider_count,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.role = 'COLLECTOR') as collector_count,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.role = 'CUSTOMER') as customer_count,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) as total_user_count
+      FROM companies c
+      ORDER BY c.created_at DESC
+    `)
+      .all();
 
-    const transaction = db.transaction(() => {
-      const result = db.prepare('INSERT INTO companies (name) VALUES (?)').run(name);
-      const companyId = result.lastInsertRowid;
-      const hashedPassword = bcrypt.hashSync(password, 10);
+    res.json(companies);
+  });
 
-      db.prepare('INSERT INTO users (company_id, name, email, password, role) VALUES (?, ?, ?, ?, ?)').run(
-        companyId,
-        admin_name || `${name} Admin`,
-        email,
-        hashedPassword,
-        'PROVIDER',
-      );
-
-      return companyId;
-    });
+  app.post('/api/admin/companies', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const rawName = req.body?.name;
+    const name = typeof rawName === 'string' ? rawName.trim() : '';
+    if (!name) {
+      return res.status(400).json({message: 'Company name is required'});
+    }
 
     try {
-      const id = transaction();
+      const existing = db
+        .prepare('SELECT id, name, status FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1')
+        .get(name);
+
+      if (existing) {
+        return res.json({
+          id: existing.id,
+          existing: true,
+          message: `Company already exists (${existing.status})`,
+        });
+      }
+
+      const result = db.prepare("INSERT INTO companies (name, status) VALUES (?, 'active')").run(name);
+      res.json({id: result.lastInsertRowid, message: 'Company created successfully'});
+    } catch (error: any) {
+      res.status(400).json({message: error.message});
+    }
+  });
+
+  app.post('/api/admin/companies/:id/deactivate', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const companyId = Number(req.params.id);
+    if (Number.isNaN(companyId)) {
+      return res.status(400).json({message: 'Invalid company id'});
+    }
+
+    const company = db.prepare('SELECT id, status FROM companies WHERE id = ?').get(companyId);
+    if (!company) {
+      return res.status(404).json({message: 'Company not found'});
+    }
+
+    const transaction = db.transaction(() => {
+      db.prepare("UPDATE companies SET status = 'inactive' WHERE id = ?").run(companyId);
+      db.prepare("UPDATE users SET status = 'inactive' WHERE company_id = ?").run(companyId);
+    });
+
+    transaction();
+    res.json({message: 'Company and all related users deactivated'});
+  });
+
+  app.post('/api/admin/companies/:id/activate', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const companyId = Number(req.params.id);
+    if (Number.isNaN(companyId)) {
+      return res.status(400).json({message: 'Invalid company id'});
+    }
+
+    const company = db.prepare('SELECT id FROM companies WHERE id = ?').get(companyId);
+    if (!company) {
+      return res.status(404).json({message: 'Company not found'});
+    }
+
+    const transaction = db.transaction(() => {
+      db.prepare("UPDATE companies SET status = 'active' WHERE id = ?").run(companyId);
+      db.prepare("UPDATE users SET status = 'active' WHERE company_id = ?").run(companyId);
+    });
+
+    transaction();
+    res.json({message: 'Company and related users activated'});
+  });
+
+  app.post('/api/admin/providers/allocate', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const {provider_id, company_id} = req.body;
+    if (!provider_id || !company_id) {
+      return res.status(400).json({message: 'provider_id and company_id are required'});
+    }
+
+    const provider = db
+      .prepare("SELECT id, role FROM users WHERE id = ? AND role = 'PROVIDER'")
+      .get(provider_id);
+    if (!provider) {
+      return res.status(404).json({message: 'Provider not found'});
+    }
+
+    const company: any = db.prepare('SELECT id, status FROM companies WHERE id = ?').get(company_id);
+    if (!company) {
+      return res.status(404).json({message: 'Company not found'});
+    }
+
+    const nextStatus = company.status === 'active' ? 'active' : 'inactive';
+    db.prepare('UPDATE users SET company_id = ?, status = ? WHERE id = ?').run(company_id, nextStatus, provider_id);
+    res.json({message: 'Provider allocated to company successfully'});
+  });
+
+  app.get('/api/admin/companies/:id/users', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const companyId = Number(req.params.id);
+    const {role} = req.query;
+
+    if (Number.isNaN(companyId)) {
+      return res.status(400).json({message: 'Invalid company id'});
+    }
+
+    if (role) {
+      const users = db
+        .prepare(
+          `
+            SELECT id, company_id, name, email, role, status, nic, address, created_at
+            FROM users
+            WHERE company_id = ? AND role = ?
+            ORDER BY created_at DESC
+          `,
+        )
+        .all(companyId, role);
+      return res.json(users);
+    }
+
+    const users = db
+      .prepare(
+        `
+          SELECT id, company_id, name, email, role, status, nic, address, created_at
+          FROM users
+          WHERE company_id = ?
+          ORDER BY role, created_at DESC
+        `,
+      )
+      .all(companyId);
+
+    res.json(users);
+  });
+
+  app.get('/api/admin/companies/:id/providers', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const companyId = Number(req.params.id);
+    if (Number.isNaN(companyId)) {
+      return res.status(400).json({message: 'Invalid company id'});
+    }
+
+    const providers = db
+      .prepare(
+        `
+          SELECT id, company_id, name, email, role, status, created_at
+          FROM users
+          WHERE company_id = ? AND role = 'PROVIDER'
+          ORDER BY created_at DESC
+        `,
+      )
+      .all(companyId);
+
+    res.json(providers);
+  });
+
+  app.get('/api/admin/companies/:id/collectors', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const companyId = Number(req.params.id);
+    if (Number.isNaN(companyId)) {
+      return res.status(400).json({message: 'Invalid company id'});
+    }
+
+    const collectors = db
+      .prepare(
+        `
+          SELECT id, company_id, name, email, role, status, created_at
+          FROM users
+          WHERE company_id = ? AND role = 'COLLECTOR'
+          ORDER BY created_at DESC
+        `,
+      )
+      .all(companyId);
+
+    res.json(collectors);
+  });
+
+  app.get('/api/admin/users/providers', auth, requireRole('SUPER_ADMIN'), (_req, res) => {
+    const providers = db
+      .prepare(
+        `
+          SELECT u.id, u.company_id, u.name, u.email, u.role, u.status, u.created_at, c.name as company_name
+          FROM users u
+          LEFT JOIN companies c ON c.id = u.company_id
+          WHERE u.role = 'PROVIDER'
+          ORDER BY u.created_at DESC
+        `,
+      )
+      .all();
+
+    res.json(providers);
+  });
+
+  app.post('/api/admin/users/:id/reset-password', auth, requireRole('SUPER_ADMIN'), (req, res) => {
+    const userId = Number(req.params.id);
+    const {new_password} = req.body;
+
+    if (Number.isNaN(userId)) {
+      return res.status(400).json({message: 'Invalid user id'});
+    }
+
+    if (!new_password || String(new_password).length < 6) {
+      return res.status(400).json({message: 'new_password is required and must be at least 6 characters'});
+    }
+
+    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return res.status(404).json({message: 'User not found'});
+    }
+
+    const hashedPassword = bcrypt.hashSync(new_password, 10);
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedPassword, userId);
+
+    res.json({message: 'Password reset successfully'});
+  });
+
+  app.post('/api/admin/providers', auth, requireRole('SUPER_ADMIN'), (req: AuthenticatedRequest, res) => {
+    const {name, email, password} = req.body;
+
+    const providerName = typeof name === 'string' ? name.trim() : '';
+    if (!providerName) {
+      return res.status(400).json({message: 'Provider name is required'});
+    }
+    if (!email || !password) {
+      return res.status(400).json({message: 'Email and password are required'});
+    }
+
+    try {
+      const hashedPassword = bcrypt.hashSync(password, 10);
+      const result = db
+        .prepare("INSERT INTO users (company_id, name, email, password, role, status) VALUES (NULL, ?, ?, ?, 'PROVIDER', 'inactive')")
+        .run(providerName, email, hashedPassword);
+
       db.prepare('INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)').run(
         req.user?.id,
         'CREATE_PROVIDER',
-        `Provisioned infrastructure for ${name}`,
+        `Registered provider account: ${providerName}`,
       );
-      res.json({id, message: 'Provider created successfully'});
+      res.json({id: result.lastInsertRowid, message: 'Provider registered successfully'});
     } catch (error: any) {
       console.error('Provider creation error:', error);
       res.status(400).json({message: error.message});
